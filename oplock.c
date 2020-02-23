@@ -841,10 +841,10 @@ static int smb2_oplock_break_noti(struct oplock_info *opinfo, int ack_required)
 	work->conn = conn;
 	work->sess = opinfo->sess;
 
+	atomic_inc(&conn->r_count);
 	if (ack_required) {
 		int rc;
 
-		atomic_inc(&conn->r_count);
 		INIT_WORK(&work->work, __smb2_oplock_break_noti);
 		ksmbd_queue_work(work);
 
@@ -859,7 +859,6 @@ static int smb2_oplock_break_noti(struct oplock_info *opinfo, int ack_required)
 			opinfo->op_state = OPLOCK_STATE_NONE;
 		}
 	} else {
-		atomic_inc(&conn->r_count);
 		__smb2_oplock_break_noti(&work->work);
 		if (opinfo->level == SMB2_OPLOCK_LEVEL_II)
 			opinfo->level = SMB2_OPLOCK_LEVEL_NONE;
