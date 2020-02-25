@@ -4868,6 +4868,7 @@ static int smb2_set_info_sec(struct ksmbd_file *fp,
 			     char *buffer,
 			     int buf_len)
 {
+	ksmbd_err("\n");
 	return 0;
 }
 
