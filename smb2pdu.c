@@ -4652,24 +4652,40 @@ static int smb2_get_info_sec(struct ksmbd_work *work,
 	struct smb2_query_info_req *req, struct smb2_query_info_rsp *rsp,
 	void *rsp_org)
 {
+	struct ksmbd_file *fp;
 	int rc = 0;
-	struct smb_ntsd *pntsd;
-	int out_len;
+	struct smb_ntsd *pntsd, *ppntsd;
+	__u32 secdesclen;
+	unsigned int id = KSMBD_NO_FID, pid = KSMBD_NO_FID;
 
-	pntsd = (struct smb_ntsd *) rsp->Buffer;
-	out_len = sizeof(struct smb_ntsd);
+	if (work->next_smb2_rcv_hdr_off) {
+		if (!HAS_FILE_ID(le64_to_cpu(req->VolatileFileId))) {
+			ksmbd_debug("Compound request set FID = %u\n",
+					work->compound_fid);
+			id = work->compound_fid;
+			pid = work->compound_pfid;
+		}
+	}
 
-	pntsd->revision = cpu_to_le16(1);
-	pntsd->type = cpu_to_le16(0x9000);
-	pntsd->osidoffset = 0;
-	pntsd->gsidoffset = 0;
-	pntsd->sacloffset = 0;
-	pntsd->dacloffset = 0;
+	if (!HAS_FILE_ID(id)) {
+		id = le64_to_cpu(req->VolatileFileId);
+		pid = le64_to_cpu(req->PersistentFileId);
+	}
 
-	rsp->OutputBufferLength = cpu_to_le32(out_len);
-	inc_rfc1001_len(rsp_org, out_len);
+	fp = ksmbd_lookup_fd_slow(work, id, pid);
+	if (!fp)
+		return -ENOENT;
 
-	return rc;
+	ppntsd = pntsd = (struct smb_ntsd *)rsp->Buffer;
+
+	rc = build_sec_desc(pntsd, ppntsd, &secdesclen, FP_INODE(fp)->i_mode);
+	if (rc)
+		return rc;
+
+	rsp->OutputBufferLength = cpu_to_le32(secdesclen);
+	inc_rfc1001_len(rsp_org, secdesclen);
+
+	return 0;
 }
 
 /**
@@ -4868,7 +4884,17 @@ static int smb2_set_info_sec(struct ksmbd_file *fp,
 			     char *buffer,
 			     int buf_len)
 {
-	ksmbd_err("\n");
+	struct smb_ntsd *pntsd = (struct smb_ntsd *)buffer;
+	struct inode *inode = FP_INODE(fp);
+	struct smb_fattr fattr;
+	int rc;
+
+	rc = parse_sec_desc(pntsd, buf_len, &fattr);
+	if (rc)
+		return rc;
+
+	inode->i_mode = (fattr.cf_mode & 07777);
+
 	return 0;
 }
 
